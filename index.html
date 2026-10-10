@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Jogo da Cobrinha Mobile</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 100vh;
+            padding: 10px;
+            overflow: hidden;
+        }
+
+        header {
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            margin-bottom: 10px;
+        }
+
+        .score-box {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        .score-box span {
+            color: #2ecc71;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            aspect-ratio: 1;
+            background-color: #1a1a1a;
+            border: 2px solid #333;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Overlay de Game Over */
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        #game-over-screen.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        #game-over-screen h2 {
+            color: #e74c3c;
+            font-size: 2rem;
+        }
+
+        .btn {
+            background-color: #2ecc71;
+            color: #fff;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(46, 204, 113, 0.4);
+            transition: transform 0.1s, background-color 0.2s;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+            background-color: #27ae60;
+        }
+
+        /* Controles Virtuais */
+        #controls {
+            width: 100%;
+            max-width: 300px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 60px);
+            gap: 10px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        .control-btn {
+            background-color: #2c3e50;
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: background-color 0.1s, transform 0.1s;
+        }
+
+        .control-btn:active {
+            background-color: #3498db;
+            transform: scale(0.92);
+        }
+
+        #btn-up { grid-column: 2; grid-row: 1; }
+        #btn-left { grid-column: 1; grid-row: 2; }
+        #btn-down { grid-column: 2; grid-row: 2; }
+        #btn-right { grid-column: 3; grid-row: 2; }
+    </style>
+</head>
+<body>
+        <h3>OlavoGames</h3>
+    <header>
+        <div class="score-box">Pontos: <span id="score">0</span></div>
+        <div class="score-box">Recorde: <span id="high-score">0</span></div>
+    </header>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+        <div id="game-over-screen">
+            <h2>Fim de Jogo!</h2>
+            <p>Sua pontuação: <span id="final-score">0</span></p>
+            <button class="btn" onclick="resetGame()">Jogar Novamente</button>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button class="control-btn" id="btn-up">▲</button>
+        <button class="control-btn" id="btn-left">◄</button>
+        <button class="control-btn" id="btn-down">▼</button>
+        <button class="control-btn" id="btn-right">►</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const highScoreElement = document.getElementById('high-score');
+        const finalScoreElement = document.getElementById('final-score');
+        const gameOverScreen = document.getElementById('game-over-screen');
+
+        const GRID_SIZE = 20;
+        const TILE_COUNT = canvas.width / GRID_SIZE;
+        const FPS = 10;
+
+        let snake = [];
+        let food = { x: 0, y: 0 };
+        let dx = GRID_SIZE;
+        let dy = 0;
+        let nextDx = dx;
+        let nextDy = dy;
+        let score = 0;
+        let highScore = localStorage.getItem('snake_high_score') || 0;
+        let gameInterval = null;
+        let isGameOver = false;
+
+        highScoreElement.textContent = highScore;
+
+        function initGame() {
+            snake = [
+                { x: 10 * GRID_SIZE, y: 10 * GRID_SIZE },
+                { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE },
+                { x: 8 * GRID_SIZE, y: 10 * GRID_SIZE }
+            ];
+            dx = GRID_SIZE;
+            dy = 0;
+            nextDx = dx;
+            nextDy = dy;
+            score = 0;
+            scoreElement.textContent = score;
+            isGameOver = false;
+            gameOverScreen.classList.remove('active');
+            generateFood();
+            
+            if (gameInterval) clearInterval(gameInterval);
+            gameInterval = setInterval(gameLoop, 1000 / FPS);
+        }
+
+        function generateFood() {
+            while (true) {
+                food.x = Math.floor(Math.random() * TILE_COUNT) * GRID_SIZE;
+                food.y = Math.floor(Math.random() * TILE_COUNT) * GRID_SIZE;
+                
+                let onSnake = snake.some(segment => segment.x === food.x && segment.y === food.y);
+                if (!onSnake) break;
+            }
+        }
+
+        function gameLoop() {
+            if (isGameOver) return;
+
+            dx = nextDx;
+            dy = nextDy;
+
+            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+
+            // Colisão com as paredes
+            if (head.x < 0 || head.x >= canvas.width || head.y < 0 || head.y >= canvas.height) {
+                return gameOver();
+            }
+
+            // Colisão com o próprio corpo
+            for (let i = 0; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) {
+                    return gameOver();
+                }
+            }
+
+            snake.unshift(head);
+
+            // Colisão com a comida
+            if (head.x === food.x && head.y === food.y) {
+                score += 10;
+                scoreElement.textContent = score;
+                if (score > highScore) {
+                    highScore = score;
+                    highScoreElement.textContent = highScore;
+                    localStorage.setItem('snake_high_score', highScore);
+                }
+                generateFood();
+            } else {
+                snake.pop();
+            }
+
+            draw();
+        }
+
+        function draw() {
+            // Limpar Tela
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Desenhar Comida
+            ctx.fillStyle = '#e74c3c';
+            ctx.beginPath();
+            ctx.roundRect(food.x + 2, food.y + 2, GRID_SIZE - 4, GRID_SIZE - 4, 4);
+            ctx.fill();
+
+            // Desenhar Cobra
+            snake.forEach((segment, index) => {
+                ctx.fillStyle = index === 0 ? '#27ae60' : '#2ecc71';
+                ctx.beginPath();
+                ctx.roundRect(segment.x + 1, segment.y + 1, GRID_SIZE - 2, GRID_SIZE - 2, 4);
+                ctx.fill();
+            });
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            clearInterval(gameInterval);
+            finalScoreElement.textContent = score;
+            gameOverScreen.classList.add('active');
+        }
+
+        function resetGame() {
+            initGame();
+        }
+
+        // --- Mapeamento de Controles ---
+
+        function changeDirection(newDx, newDy) {
+            // Evitar inversão imediata de sentido (ex: ir pra direita enquanto vai pra esquerda)
+            if (newDx !== -dx || newDy !== -dy) {
+                if (dx === 0 && newDx !== 0) {
+                    nextDx = newDx;
+                    nextDy = 0;
+                } else if (dy === 0 && newDy !== 0) {
+                    nextDx = 0;
+                    nextDy = newDy;
+                }
+            }
+        }
+
+        // Teclado
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') changeDirection(0, -GRID_SIZE);
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') changeDirection(0, GRID_SIZE);
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') changeDirection(-GRID_SIZE, 0);
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') changeDirection(GRID_SIZE, 0);
+        });
+
+        // Botões Virtuais na Tela
+        document.getElementById('btn-up').addEventListener('click', () => changeDirection(0, -GRID_SIZE));
+        document.getElementById('btn-down').addEventListener('click', () => changeDirection(0, GRID_SIZE));
+        document.getElementById('btn-left').addEventListener('click', () => changeDirection(-GRID_SIZE, 0));
+        document.getElementById('btn-right').addEventListener('click', () => changeDirection(GRID_SIZE, 0));
+
+        // Gestos Touch (Swipe)
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        canvas.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+
+        canvas.addEventListener('touchend', (e) => {
+            if (!touchStartX || !touchStartY) return;
+
+            let touchEndX = e.changedTouches[0].clientX;
+            let touchEndY = e.changedTouches[0].clientY;
+
+            let diffX = touchEndX - touchStartX;
+            let diffY = touchEndY - touchStartY;
+
+            if (Math.abs(diffX) > Math.abs(diffY)) {
+                // Movimento Horizontal
+                if (diffX > 30) changeDirection(GRID_SIZE, 0); // Direita
+                else if (diffX < -30) changeDirection(-GRID_SIZE, 0); // Esquerda
+            } else {
+                // Movimento Vertical
+                if (diffY > 30) changeDirection(0, GRID_SIZE); // Baixo
+                else if (diffY < -30) changeDirection(0, -GRID_SIZE); // Cima
+            }
+
+            touchStartX = 0;
+            touchStartY = 0;
+        }, { passive: true });
+
+        // Iniciar jogo
+        initGame();
+    </script>
+</body>
+</html>
